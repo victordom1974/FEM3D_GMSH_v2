@@ -4,8 +4,10 @@ function T = completeMesh3D(T)
 %   T = completeMesh3D(T) takes a mesh struct with at least coord, ttrh,
 %   trB, domBd, domain and deg, and computes nNodes, trBNormal, faces,
 %   ttrh2faces, faces2ttrh, facenormal and detBk exactly as importGMSH3D
-%   does, so that FEM3Dclass(T) works. If the field refinement is missing,
-%   an empty level-0 record is added (coarsest mesh of a hierarchy).
+%   does, so that FEM3Dclass(T) works. Nodes not referenced by ttrh
+%   (ghost nodes, e.g. the P2 edge nodes after taking the P1 skeleton) are
+%   removed and the remaining ones renumbered. If the field refinement is
+%   missing, an empty level-0 record is added (coarsest mesh of a hierarchy).
 %
 %   The code of the derived fields is the final part of importGMSH3D,
 %   reproduced here so that meshes not read from Gmsh (refined, hand-made)
@@ -14,11 +16,24 @@ function T = completeMesh3D(T)
 % Last modified: 2026-10-08
 % Changelog:
 %   2026-10-08  First version (extracted from refineTtrh / importGMSH3D).
+%   2026-10-08  Ghost nodes removed and renumbered.
 
 if ~isfield(T, 'trB') || isempty(T.trB)
     T.trB = zeros(0, 3);  T.domBd = zeros(0, 1);
 end
-T.nNodes = max(T.ttrh(:));
+% Ghost nodes: keep only nodes referenced by ttrh, renumber
+used = unique(T.ttrh(:));
+if numel(used) ~= size(T.coord, 1) || any(used(:).' ~= 1:numel(used))
+    map = zeros(max(size(T.coord, 1), max(used)), 1);
+    map(used) = 1:numel(used);
+    if ~isempty(T.trB) && any(map(T.trB(:)) == 0)
+        error('completeMesh3D:boundary', 'trB references nodes not in ttrh.');
+    end
+    T.ttrh  = reshape(map(T.ttrh), size(T.ttrh));
+    T.trB   = reshape(map(T.trB), size(T.trB));
+    T.coord = T.coord(used, :);
+end
+T.nNodes = numel(used);
 
 v21 = T.coord(T.trB(:,1), :) - T.coord(T.trB(:,2), :);
 v31 = T.coord(T.trB(:,1), :) - T.coord(T.trB(:,3), :);
