@@ -1,0 +1,20 @@
+# MATLAB
+*.asv
+*.m~
+*.mex*
+*.mlappinstall
+slprj/
+# results and figures
+results/
+*.fig
+*.eps
+*.png
+*.pdf
+!TFG_FEM_SimplicialElements_GMSH.pdf
+# large data
+*.mat
+!@FEM3Dclass/gradNs3D.mat
+# editors / OS
+.DS_Store
+*.swp
+.vscode/
