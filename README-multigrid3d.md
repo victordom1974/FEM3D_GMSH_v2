@@ -12,6 +12,7 @@ minimal changes listed below. All new code lives outside it.
 
     @FEM3Dclass/      original package
     multigrid3d/      refineTtrh.m         uniform (red) refinement, Bey's algorithm, P1-P4
+                      completeMesh3D.m     derived mesh fields (faces, normals, detBk)
                       prolongation3D.m     nested prolongation from refineTtrh info   (to do)
                       @MG3Dsolver/         multigrid V-cycle / preconditioner            (to do)
     tests/            test_refineTtrh.m        Kuhn cube, no Gmsh needed

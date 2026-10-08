@@ -11,6 +11,7 @@
 % Last modified: 2026-10-08
 % Changelog:
 %   2026-10-08  First version.
+%   2026-10-08  Use completeMesh3D and T.refinement.
 
 clear; clc;
 
@@ -21,7 +22,7 @@ for deg = 1:4
     q0 = tetQuality(T);
     nLev = 3;
     for lev = 1:nLev
-        [T, info] = refineTtrh(T);
+        T = refineTtrh(T);
         q = tetQuality(T);
         area = sum(vecnorm(T.trBNormal, 2, 2))/2;
         fprintf('level %d: %7d ttrh, %8d nodes, min detBk %.2e, vol %.12f, area %.12f, min quality %.4f (coarse %.4f)\n', ...
@@ -47,9 +48,9 @@ for deg = 1:4
 
     % Prolongation coarse (two levels up) -> fine, polynomial reproduction
     Tc = refineTtrh(T0);
-    [Tf, info] = refineTtrh(Tc);
+    Tf = refineTtrh(Tc);
     objC = FEM3Dclass(Tc);
-    P = prolongationFromInfo(objC, Tf, info);
+    P = prolongationFromInfo(objC, Tf);
     f = @(x) (1 + 2*x(:,1) - 3*x(:,2) + 0.5*x(:,3)).^deg;     % exact in P_deg
     err = norm(P*f(Tc.coord) - f(Tf.coord), inf);
     fprintf('prolongation: size %d x %d, nnz/row %.2f, polynomial reproduction error %.2e\n', ...
@@ -57,8 +58,9 @@ for deg = 1:4
 end
 
 % ------------------------------------------------------------------------
-function P = prolongationFromInfo(objC, Tf, info)
+function P = prolongationFromInfo(objC, Tf)
 % Nested prolongation: evaluate the coarse local basis at the fine nodes.
+info = Tf.refinement;
 Tc   = objC.mesh;
 nL   = size(Tc.ttrh, 2);
 nF   = Tf.nNodes;
@@ -86,7 +88,7 @@ end
 
 function T = cubeKuhnMesh(deg)
 % Unit cube, 6 Kuhn tetrahedra, P1 skeleton with T.deg = deg (refineTtrh
-% generates the Pk nodes).
+% generates the Pk nodes). Derived fields via completeMesh3D.
 [x, y, z] = ndgrid([0 1]);
 coord = [x(:) y(:) z(:)];
 id = @(p) 1 + p(1) + 2*p(2) + 4*p(3);
@@ -108,9 +110,10 @@ faces = [ttrh(:, indAux(1,:)); ttrh(:, indAux(2,:)); ttrh(:, indAux(3,:)); ttrh(
 cnt = accumarray(j, 1);
 trB = faces(cnt(j) == 1, :);
 
-T.nNodes = 8; T.deg = deg; T.coord = coord;
+T.deg = deg; T.coord = coord;
 T.ttrh = ttrh; T.domain = ones(6, 1);
 T.trB = trB;   T.domBd = ones(size(trB, 1), 1);
+T = completeMesh3D(T);
 end
 
 function d = tetDetLocal(V, coord)

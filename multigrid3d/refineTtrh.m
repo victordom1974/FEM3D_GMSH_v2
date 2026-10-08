@@ -8,20 +8,23 @@ function [Tf, info] = refineTtrh(T)
 %         Only the vertex columns ttrh(:,1:4), trB(:,1:3) and the field deg
 %         are read, so a P1 skeleton with deg = k is a valid input: the
 %         output is then a proper Pk mesh (degree elevation for free).
-%   Tf  : refined mesh struct with the same fields as importGMSH3D produces,
-%         ready for FEM3Dclass(Tf). Every tetrahedron is split into 8 and
-%         every boundary triangle into 4. Tags (domain, domBd) are inherited.
+%   Tf  : refined mesh struct with the same fields as importGMSH3D produces
+%         (derived fields computed by completeMesh3D), ready for
+%         FEM3Dclass(Tf). Every tetrahedron is split into 8 and every
+%         boundary triangle into 4. Tags (domain, domBd) are inherited.
 %         Pk nodes (k = T.deg, 1..4) are generated in Gmsh ordering, the
-%         same used in basisNj.
+%         same used in basisNj. The hierarchy information is stored in the
+%         field Tf.refinement (also returned as info):
 %
-%   info.parent      (nTtrhF x 1)  parent tetrahedron of each fine tetrahedron
-%   info.child       (nTtrhF x 1)  Bey child index (1..8) of each fine tetrahedron
-%   info.nodeParent  (nNodesF x 1) a coarse tetrahedron containing each fine node
-%   info.nodeBaryc   (nNodesF x 4) barycentric coordinates of each fine node in
-%                                  info.nodeParent, w.r.t. the vertex order of
-%                                  T.ttrh(info.nodeParent, 1:4). This is all
-%                                  that is needed to build the prolongation:
-%                                  P(i, T.ttrh(p,j)) = Nj3D{j}(baryc(i,:)).
+%     .level       refinement level (T.refinement.level + 1; 1 if T has none)
+%     .parent      (nTtrhF x 1)  parent tetrahedron of each fine tetrahedron
+%     .child       (nTtrhF x 1)  Bey child index (1..8) of each fine tetrahedron
+%     .nodeParent  (nNodesF x 1) a coarse tetrahedron containing each fine node
+%     .nodeBaryc   (nNodesF x 4) barycentric coordinates of each fine node in
+%                                nodeParent, w.r.t. the vertex order of
+%                                T.ttrh(nodeParent, 1:4). This is all that is
+%                                needed to build the prolongation:
+%                                P(i, T.ttrh(p,j)) = Nj3D{j}(nodeBaryc(i,:)).
 %
 %   Notes on the algorithm (Bey 1995, Computing 55; Bey 2000, Numer. Math. 85):
 %   corners are cut off at the edge midpoints and the inner octahedron is
@@ -36,6 +39,8 @@ function [Tf, info] = refineTtrh(T)
 % Last modified: 2026-10-08
 % Changelog:
 %   2026-10-08  First version (Bey refinement, P1-P4 nodes, boundary, info).
+%   2026-10-08  Hierarchy stored in Tf.refinement; derived fields via
+%               completeMesh3D (now a separate file).
 
 if isa(T, 'FEM3Dclass')
     T = T.mesh;
@@ -184,11 +189,15 @@ Tf.ttrh   = ttrhF;
 Tf.domain = domainF;
 Tf = completeMesh3D(Tf);                      % faces, normals, detBk
 
-info.parent     = parent;
-info.child      = child;
-info.nodeParent = nodeParent;
-info.nodeBaryc  = nodeBaryc;
-info.nEdges     = nE;
+if isfield(T, 'refinement') && isfield(T.refinement, 'level')
+    level = T.refinement.level + 1;
+else
+    level = 1;
+end
+Tf.refinement = struct('level', level, 'parent', parent, 'child', child, ...
+                       'nodeParent', nodeParent, 'nodeBaryc', nodeBaryc, ...
+                       'nEdges', nE);
+info = Tf.refinement;
 end
 
 %% ------------------------------------------------------------------------
@@ -217,37 +226,6 @@ ids(w == 0) = 0;
 [idsS, perm] = sort(ids, 2);
 wS = w(sub2ind(size(w), repmat((1:n).', 1, 4), perm));
 K = [idsS, wS];
-end
-
-function Tf = completeMesh3D(Tf)
-% Derived fields, identical to the final part of importGMSH3D.
-v21 = Tf.coord(Tf.trB(:,1), :) - Tf.coord(Tf.trB(:,2), :);
-v31 = Tf.coord(Tf.trB(:,1), :) - Tf.coord(Tf.trB(:,3), :);
-Tf.trBNormal = cross(v21, v31, 2);
-
-nElement = size(Tf.ttrh, 1);
-indAux   = [2 3 4; 1 4 3; 1 2 4; 1 3 2];
-Tf.faces = [Tf.ttrh(:, indAux(1,:)); Tf.ttrh(:, indAux(2,:)); ...
-            Tf.ttrh(:, indAux(3,:)); Tf.ttrh(:, indAux(4,:))];
-facesAux = sort(Tf.faces(:, 1:3), 2);
-[~, p1, p3] = unique(facesAux, 'rows', 'first');
-[~, p2]     = unique(facesAux, 'rows', 'last');
-Tf.faces    = Tf.faces(p1, :);
-ind = zeros(nElement, 4); ind(:) = 1:numel(Tf.ttrh(:, 1:4));
-Tf.ttrh2faces = p3(ind);
-p1 = mod(p1, nElement); p1(p1 == 0) = nElement;
-p2 = mod(p2, nElement); p2(p2 == 0) = nElement;
-Tf.faces2ttrh = [p1, p2];
-Tf.faces2ttrh(p1 == p2, 2) = nan;
-
-v21 = Tf.coord(Tf.faces(:,1), :) - Tf.coord(Tf.faces(:,2), :);
-v31 = Tf.coord(Tf.faces(:,1), :) - Tf.coord(Tf.faces(:,3), :);
-Tf.facenormal = cross(v21, v31, 2);
-
-v12 = Tf.coord(Tf.ttrh(:,2), :) - Tf.coord(Tf.ttrh(:,1), :);
-v13 = Tf.coord(Tf.ttrh(:,3), :) - Tf.coord(Tf.ttrh(:,1), :);
-v14 = Tf.coord(Tf.ttrh(:,4), :) - Tf.coord(Tf.ttrh(:,1), :);
-Tf.detBk = dot(v12, cross(v13, v14, 2), 2);
 end
 
 function L = localNodes3D(deg)

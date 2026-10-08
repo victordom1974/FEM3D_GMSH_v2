@@ -9,6 +9,7 @@
 % Last modified: 2026-10-08
 % Changelog:
 %   2026-10-08  First version.
+%   2026-10-08  Use T.refinement.
 
 clear; clc;
 
@@ -25,7 +26,7 @@ report(T0, 0, volExact, areaExact);
 T = T0;
 for lev = 1:2
     tic;
-    [T, info] = refineTtrh(T);
+    T = refineTtrh(T);
     t = toc;
     report(T, lev, volExact, areaExact);
     fprintf('          refinement time %.2f s\n', t);
@@ -42,10 +43,10 @@ M = obj.femMassMatrix(@(x,y,z) 1 + 0*x);
 fprintf('finest level: sum(M) - volume = %.2e\n', sum(M(:)) - volExact);
 
 % Prolongation level 1 -> level 2 reproduces quadratics (deg = 2)
-[T1, ~]     = refineTtrh(T0);
-[T2, info2] = refineTtrh(T1);
+T1 = refineTtrh(T0);
+T2 = refineTtrh(T1);
 obj1 = FEM3Dclass(T1);
-P = prolongationFromInfo(obj1, T2, info2);
+P = prolongationFromInfo(obj1, T2);
 f = @(x) 1 + 2*x(:,1) - 3*x(:,2) + 0.5*x(:,3) + x(:,1).^2 - x(:,2).*x(:,3) + x(:,3).^2;
 err = norm(P*f(T1.coord) - f(T2.coord), inf) / norm(f(T2.coord), inf);
 fprintf('prolongation %d x %d: relative reproduction error %.2e\n', size(P,1), size(P,2), err);
@@ -61,8 +62,8 @@ fprintf('level %d: %7d ttrh, %8d nodes (nV+nE = %8d), min detBk %.2e, vol-err %.
     sum(T.detBk)/6 - volExact, sum(vecnorm(T.trBNormal,2,2))/2 - areaExact);
 end
 
-function P = prolongationFromInfo(objC, Tf, info)
-Tc = objC.mesh; nL = size(Tc.ttrh,2); nF = Tf.nNodes; b = info.nodeBaryc;
+function P = prolongationFromInfo(objC, Tf)
+info = Tf.refinement; Tc = objC.mesh; nL = size(Tc.ttrh,2); nF = Tf.nNodes; b = info.nodeBaryc;
 vals = zeros(nF, nL);
 for j = 1:nL
     vals(:,j) = objC.Nj3D{j}(b(:,1), b(:,2), b(:,3), b(:,4));
