@@ -11,9 +11,6 @@
 % Last modified: 2026-10-08
 % Changelog:
 %   2026-10-08  First version.
-%   2026-10-08  Use completeMesh3D and T.refinement.
-%   2026-10-08  Use prolongation3D.
-%   2026-10-08  Use meshQuality3D.
 
 clear; clc;
 
@@ -21,11 +18,11 @@ for deg = 1:4
     fprintf('\n=== deg = %d ===\n', deg);
     T0 = cubeKuhnMesh(deg);
     T  = T0;
-    q0 = meshQuality3D(T);
+    q0 = tetQuality(T);
     nLev = 3;
     for lev = 1:nLev
-        T = refineTtrh(T);
-        q = meshQuality3D(T);
+        [T, info] = refineTtrh(T);
+        q = tetQuality(T);
         area = sum(vecnorm(T.trBNormal, 2, 2))/2;
         fprintf('level %d: %7d ttrh, %8d nodes, min detBk %.2e, vol %.12f, area %.12f, min quality %.4f (coarse %.4f)\n', ...
             lev, size(T.ttrh,1), T.nNodes, min(T.detBk), sum(T.detBk)/6, area, min(q), min(q0));
@@ -50,9 +47,9 @@ for deg = 1:4
 
     % Prolongation coarse (two levels up) -> fine, polynomial reproduction
     Tc = refineTtrh(T0);
-    Tf = refineTtrh(Tc);
+    [Tf, info] = refineTtrh(Tc);
     objC = FEM3Dclass(Tc);
-    P = prolongation3D(objC, Tf);
+    P = prolongationFromInfo(objC, Tf, info);
     f = @(x) (1 + 2*x(:,1) - 3*x(:,2) + 0.5*x(:,3)).^deg;     % exact in P_deg
     err = norm(P*f(Tc.coord) - f(Tf.coord), inf);
     fprintf('prolongation: size %d x %d, nnz/row %.2f, polynomial reproduction error %.2e\n', ...
@@ -60,18 +57,36 @@ for deg = 1:4
 end
 
 % ------------------------------------------------------------------------
+function P = prolongationFromInfo(objC, Tf, info)
+% Nested prolongation: evaluate the coarse local basis at the fine nodes.
+Tc   = objC.mesh;
+nL   = size(Tc.ttrh, 2);
+nF   = Tf.nNodes;
+b    = info.nodeBaryc;
+vals = zeros(nF, nL);
+for j = 1:nL
+    vals(:, j) = objC.Nj3D{j}(b(:,1), b(:,2), b(:,3), b(:,4));
+end
 cols = Tc.ttrh(info.nodeParent, :);
 rows = repmat((1:nF).', 1, nL);
 keep = abs(vals) > 1e-14;
 P = sparse(rows(keep), cols(keep), vals(keep), nF, Tc.nNodes);
 end
 
+function q = tetQuality(T)
+% 6*sqrt(2)*volume / (longest edge)^3: 1 for the regular tetrahedron.
+c = T.coord; V = T.ttrh(:, 1:4);
+e = [1 2; 1 3; 1 4; 2 3; 2 4; 3 4];
+h = zeros(size(V,1), 6);
+for k = 1:6
+    h(:, k) = vecnorm(c(V(:,e(k,1)), :) - c(V(:,e(k,2)), :), 2, 2);
+end
 q = 6*sqrt(2)*(T.detBk/6) ./ max(h, [], 2).^3;
 end
 
 function T = cubeKuhnMesh(deg)
 % Unit cube, 6 Kuhn tetrahedra, P1 skeleton with T.deg = deg (refineTtrh
-% generates the Pk nodes). Derived fields via completeMesh3D.
+% generates the Pk nodes).
 [x, y, z] = ndgrid([0 1]);
 coord = [x(:) y(:) z(:)];
 id = @(p) 1 + p(1) + 2*p(2) + 4*p(3);
@@ -93,10 +108,9 @@ faces = [ttrh(:, indAux(1,:)); ttrh(:, indAux(2,:)); ttrh(:, indAux(3,:)); ttrh(
 cnt = accumarray(j, 1);
 trB = faces(cnt(j) == 1, :);
 
-T.deg = deg; T.coord = coord;
+T.nNodes = 8; T.deg = deg; T.coord = coord;
 T.ttrh = ttrh; T.domain = ones(6, 1);
 T.trB = trB;   T.domBd = ones(size(trB, 1), 1);
-T = completeMesh3D(T);
 end
 
 function d = tetDetLocal(V, coord)
